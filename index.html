@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<title>Te Escucho · transcriptor</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="status">
+    <span id="net" class="pill">…</span>
+    <span id="mode" class="pill"></span>
+    <span id="offlineReady" class="pill warn">Preparando…</span>
+  </div>
+  <button id="btnSettings" class="icon" aria-label="Ajustes">⚙</button>
+</header>
+
+<section class="speakers" aria-label="Interlocutores">
+  <div id="chips" class="chips"></div>
+  <button id="btnAdd" class="add">＋ Agregar interlocutor</button>
+</section>
+
+<div id="install" class="install" hidden>
+  <span id="installText">Instalá la app para abrirla con un toque, aunque no haya internet.</span>
+  <button id="btnInstall" class="primary">📲 Instalar en este dispositivo</button>
+</div>
+
+<div id="loadbar" class="loadbar" hidden><div id="loadfill"></div><span id="loadtext"></span></div>
+<div id="notice" class="notice" hidden></div>
+
+<main id="log" class="log" role="log" aria-live="off" tabindex="0">
+  <p class="empty" id="empty">Tocá el botón de abajo para empezar a escuchar.<br>
+  Para sumar a alguien, tocá <b>＋ Agregar interlocutor</b> y que diga su nombre.</p>
+</main>
+<button id="btnBottom" class="bottom" hidden>↓ Ir al final</button>
+
+<footer class="bar">
+  <div id="live" class="live">Micrófono apagado</div>
+  <div class="meter"><i id="meter"></i></div>
+  <button id="btnMic" class="mic on">⏸ Pausar</button>
+</footer>
+
+<!-- Alta de interlocutor -->
+<div id="enroll" class="modal" hidden>
+  <div class="card">
+    <h2 id="enTitle">Nuevo interlocutor</h2>
+    <p id="enMsg" class="big">Decí tu nombre en voz alta</p>
+    <div class="meter big"><i id="enMeter"></i></div>
+    <div id="enForm" hidden>
+      <label>Nombre
+        <input id="enName" maxlength="24" autocomplete="off">
+      </label>
+      <p class="hint">Si lo escribí mal, corregilo acá.</p>
+    </div>
+    <div class="row">
+      <button id="enRetry" hidden>Repetir</button>
+      <button id="enSave" class="primary" hidden>Guardar</button>
+      <button id="enCancel">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Editar interlocutor -->
+<div id="spkMenu" class="modal" hidden>
+  <div class="card">
+    <h2 id="smTitle"></h2>
+    <label>Nombre <input id="smName" maxlength="24" autocomplete="off"></label>
+    <div class="row">
+      <button id="smRetrain">Reforzar voz</button>
+      <button id="smDelete" class="danger">Eliminar</button>
+    </div>
+    <div class="row">
+      <button id="smOk" class="primary">Listo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cambiar quién dijo una frase -->
+<div id="assign" class="modal" hidden>
+  <div class="card">
+    <h2>¿Quién dijo esto?</h2>
+    <div id="asList" class="list"></div>
+    <div class="row"><button id="asCancel">Cancelar</button></div>
+  </div>
+</div>
+
+<!-- Ajustes -->
+<aside id="settings" class="drawer" hidden>
+  <div class="dhead"><h2>Ajustes</h2><button id="btnCloseSettings" class="icon" aria-label="Cerrar">✕</button></div>
+
+  <label>Micrófono
+    <select id="micSel"></select>
+  </label>
+  <p class="hint">Si no escucha nada, probá elegir otro micrófono de la lista.</p>
+
+  <label>Amplificar micrófono <span id="gainVal"></span>
+    <input id="gain" type="range" min="1" max="40" step="1">
+  </label>
+  <p class="hint">Si la barra verde casi no se mueve, subí esto. Amplifica el sonido que llega, pero también el ruido.</p>
+
+  <label>Tamaño de letra <span id="fsVal"></span>
+    <input id="fs" type="range" min="18" max="64" step="2">
+  </label>
+
+  <label>Tema
+    <select id="theme">
+      <option value="dark">Oscuro</option>
+      <option value="light">Claro</option>
+      <option value="auto">Automático</option>
+    </select>
+  </label>
+
+  <label>Calidad de transcripción
+    <select id="model"></select>
+  </label>
+  <p id="modelHint" class="hint"></p>
+
+  <label>Sensibilidad para reconocer voces <span id="thVal"></span>
+    <input id="th" type="range" min="0.60" max="0.95" step="0.01">
+  </label>
+  <p class="hint">Si confunde a dos personas, subila. Si dice “¿Quién?” seguido, bajala.</p>
+
+  <label>Palabras propias (nombres, lugares, términos). Una por línea.
+    <textarea id="words" rows="5" placeholder="Ej.: Mateo&#10;Rosario&#10;Hipoacusia"></textarea>
+  </label>
+
+  <div class="row wrap">
+    <button id="btnSave">Guardar conversación (.txt)</button>
+    <button id="btnClear" class="danger">Borrar conversación</button>
+    <button id="btnForget" class="danger">Borrar todas las voces</button>
+  </div>
+
+  <h3>Transcripción en la nube (opcional)</h3>
+  <label class="check"><input type="checkbox" id="cloudOn"> Usar la nube cuando haya internet</label>
+  <label>Clave de Deepgram
+    <input id="cloudKey" type="password" autocomplete="off" placeholder="pegá la clave acá">
+  </label>
+  <div class="row"><button id="cloudTest">Probar conexión</button></div>
+  <p id="cloudMsg" class="hint"></p>
+  <p class="hint">Cómo conseguirla (gratis, sin tarjeta, trae US$200 de crédito): entrá a console.deepgram.com, creá una cuenta y, en "API Keys", tocá "Create a New API Key". Pegala acá. Cuesta alrededor de 40 a 60 centavos de dólar por hora de conversación, y el audio se envía solo mientras hay voz. Sin internet la app sigue sola en modo local. La clave queda guardada solo en este dispositivo.</p>
+
+  <h3>Velocidad</h3>
+  <p id="speed" class="hint"></p>
+  <p id="speedLast" class="hint"></p>
+
+  <h3>Diagnóstico</h3>
+  <p class="hint">Si algo no anda, copiá este texto y mandámelo.</p>
+  <pre id="diag" class="diag"></pre>
+
+  <h3>Estado sin internet</h3>
+  <ul id="checks" class="checks"></ul>
+</aside>
+
+<script>
+  // Aviso si la app no pudo arrancar (por ejemplo, abierta con doble clic desde la carpeta).
+  setTimeout(function () {
+    if (window.__txLoaded) return;
+    var n = document.getElementById('notice');
+    n.hidden = false;
+    n.textContent = location.protocol === 'file:'
+      ? 'La app no se puede abrir con doble clic en el archivo. Subí la carpeta "app" a https://app.netlify.com/drop (o abrila con un servidor local: python3 -m http.server) y entrá por la dirección que te da.'
+      : 'La app no pudo arrancar. Probá recargar la página o usar un navegador actualizado (Chrome, Edge o Safari).';
+  }, 2500);
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
