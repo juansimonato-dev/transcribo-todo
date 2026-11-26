@@ -81,6 +81,7 @@ export class CloudASR {
     this.lastSend = 0;
     this.timer = null;
     this.closedByUs = false;
+    this.stats = { sent: 0, bytes: 0, msgs: 0, results: 0, texts: 0, last: '' };
   }
 
   connect(timeoutMs = 8000) {
@@ -112,6 +113,8 @@ export class CloudASR {
         else if (was && !this.closedByUs) this.o.onClose?.(e?.code, e?.reason);
       };
       this.ws.onmessage = (ev) => {
+        const st = this.stats; st.msgs++;
+        try { const j = JSON.parse(ev.data); st.last = j.type || '?'; if (j.type === 'Results') { st.results++; if ((j.channel?.alternatives?.[0]?.transcript || '').trim()) st.texts++; } else if (j.type !== 'Metadata') st.last += ' ' + String(ev.data).slice(0, 120); } catch {}
         const r = parseMessage(ev.data);
         if (!r) return;
         if (r.kind === 'interim') this.o.onInterim?.(r);
@@ -128,7 +131,7 @@ export class CloudASR {
 
   send(f32) {
     if (!this.open) return;
-    try { this.ws.send(pcm16(f32)); this.lastSend = Date.now(); } catch {}
+    try { const b = pcm16(f32); this.ws.send(b); this.stats.sent++; this.stats.bytes += b.byteLength || 0; this.lastSend = Date.now(); } catch (e) { this.stats.last = 'send: ' + e.message; }
   }
 
   /** Pide cerrar lo pendiente (para que lo último dicho salga ya) */

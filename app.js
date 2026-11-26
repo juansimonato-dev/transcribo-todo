@@ -449,11 +449,15 @@ setInterval(async () => {
   if (stream && stream.getAudioTracks()[0]?.readyState === 'ended') restartMic();
 }, 5000);
 
+let peakEnv = 0.05, curGain = 1;
 function onAudio(a) {
-  if (S.gain > 1) { // amplificación por software (con tope para no distorsionar)
-    const g = S.gain;
-    for (let i = 0; i < a.length; i++) { const v = a[i] * g; a[i] = v > 1 ? 1 : v < -1 ? -1 : v; }
-  }
+  // amplificación automática: sube solo si el micrófono es bajito, y nunca satura (S.gain es el tope)
+  let rawPeak = 0;
+  for (let i = 0; i < a.length; i += 8) { const v = Math.abs(a[i]); if (v > rawPeak) rawPeak = v; }
+  peakEnv = Math.max(rawPeak, peakEnv * 0.97);
+  const g = Math.min(S.gain, Math.max(1, 0.35 / Math.max(peakEnv, 1e-4)));
+  curGain = g;
+  if (g > 1.05) for (let i = 0; i < a.length; i++) { const v = a[i] * g; a[i] = v > 1 ? 1 : v < -1 ? -1 : v; }
   const events = seg.push(a);
   const db = 20 * Math.log10(Math.max(seg.lastRms, 1e-5));
   const lvl = Math.max(0, Math.min(1, (db + 60) / 45)) * 100 + '%'; // -60 dB .. -15 dB
@@ -461,7 +465,7 @@ function onAudio(a) {
   let peak = 0;
   for (let i = 0; i < a.length; i += 16) peak = Math.max(peak, Math.abs(a[i]));
   const now = Date.now();
-  if (peak > 0.002 * Math.max(1, S.gain)) {
+  if (peak > 0.002) {
     lastSound = now;
     if (silentWarned) { silentWarned = false; setNotice(''); }
   } else if (now - lastSound > 6000 && !silentWarned) {
@@ -713,6 +717,12 @@ function finishEnrollCloud() {
 }
 
 /* audio hacia la nube: solo mientras hay voz (más 1,6 s de cola) para gastar menos crédito */
+setInterval(() => {
+  if (!micOn) return;
+  const st = cloud?.stats, db = Math.round(20 * Math.log10(Math.max(seg?.lastRms || 0, 1e-5)));
+  addLog(`${new Date().toLocaleTimeString('es-AR')} mic ${db} dB (amplif. ×${curGain.toFixed(1)})${seg?.speaking ? ' (voz)' : ''}, ` + (cloud ? `nube: enviados ${st.sent} bloques, recibidos ${st.msgs} (${st.results} resultados, ${st.texts} con texto)${st.last ? ', último: ' + st.last : ''}` : 'sin nube'));
+}, 10000);
+
 function cloudFeed(a) {
   const now = Date.now();
   if (seg.speaking) cloudUntil = now + 1600;
