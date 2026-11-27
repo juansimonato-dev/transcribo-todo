@@ -449,15 +449,16 @@ setInterval(async () => {
   if (stream && stream.getAudioTracks()[0]?.readyState === 'ended') restartMic();
 }, 5000);
 
-let peakEnv = 0.05, curGain = 1;
+let peakEnv = 0.05, curGain = 1, smoothGain = 1;
 function onAudio(a) {
-  // amplificación automática: sube solo si el micrófono es bajito, y nunca satura (S.gain es el tope)
+  // amplificación automática suave: baja de golpe si hay un grito, sube de a poco si hay voz lejana; sin recortes
   let rawPeak = 0;
   for (let i = 0; i < a.length; i += 8) { const v = Math.abs(a[i]); if (v > rawPeak) rawPeak = v; }
-  peakEnv = Math.max(rawPeak, peakEnv * 0.97);
-  const g = Math.min(S.gain, Math.max(1, 0.35 / Math.max(peakEnv, 1e-4)));
-  curGain = g;
-  if (g > 1.05) for (let i = 0; i < a.length; i++) { const v = a[i] * g; a[i] = v > 1 ? 1 : v < -1 ? -1 : v; }
+  peakEnv = Math.max(rawPeak, peakEnv * 0.985);
+  const target = Math.min(Math.max(S.gain, 8), Math.max(1, 0.3 / Math.max(peakEnv, 1e-4)));
+  smoothGain = target < smoothGain ? target : Math.min(target, smoothGain * 1.04);
+  const g = curGain = smoothGain;
+  if (g > 1.05) for (let i = 0; i < a.length; i++) { const v = a[i] * g; a[i] = v > 0.9 ? 0.9 + 0.1 * Math.tanh((v - 0.9) * 10) : v < -0.9 ? -0.9 - 0.1 * Math.tanh((-v - 0.9) * 10) : v; }
   const events = seg.push(a);
   const db = 20 * Math.log10(Math.max(seg.lastRms, 1e-5));
   const lvl = Math.max(0, Math.min(1, (db + 60) / 45)) * 100 + '%'; // -60 dB .. -15 dB
@@ -724,15 +725,8 @@ setInterval(() => {
 }, 10000);
 
 function cloudFeed(a) {
-  const now = Date.now();
-  if (seg.speaking) cloudUntil = now + 1600;
-  if (now < cloudUntil) {
-    if (ring.length) { ring.forEach((c) => cloud?.send(c)); ring = []; }
-    cloud?.send(a);
-  } else {
-    ring.push(a.slice());
-    if (ring.length > 6) ring.shift(); // ~600 ms previos al inicio de la frase
-  }
+  // se manda todo el audio: la voz baja o lejana también cuenta, y Deepgram decide qué es voz
+  cloud?.send(a);
 }
 
 async function connectCloud() {
