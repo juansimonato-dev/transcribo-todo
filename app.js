@@ -3,6 +3,7 @@ import {
   matchSpeaker, updateCentroid, cleanTranscript, applyCustomWords, formatTime,
 } from './core.js';
 import { CloudASR } from './cloud.js';
+import { GROQ_MODELS, transcribeGroq, testGroqKey, GroqError } from './groq.js';
 
 window.__txLoaded = true;
 const $ = (id) => document.getElementById(id);
@@ -12,7 +13,7 @@ const MODELS = {
   base: { id: 'Xenova/whisper-base', label: 'Equilibrado (recomendado) · ~90 MB', mb: 90 },
   small: { id: 'Xenova/whisper-small', label: 'Preciso (más lento, para equipos potentes) · ~280 MB', mb: 280 },
 };
-const DEF = { fs: 34, theme: 'dark', model: 'base', th: 0.85, words: '', mic: '', gain: 6, cloud: true, cloudKey: '' };
+const DEF = { fs: 34, theme: 'dark', model: 'base', th: 0.85, words: '', mic: '', gain: 6, cloud: true, cloudKey: '', engine: '', groqKey: '', groqModel: 'whisper-large-v3-turbo' };
 
 /* ───────────── Estado y persistencia ───────────── */
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
@@ -21,6 +22,8 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString
 
 const S = { ...DEF, ...load('tx.settings', {}) };
 if (!MODELS[S.model]) S.model = 'base';
+if (!S.engine) S.engine = (S.cloud && S.cloudKey) ? 'deepgram' : 'local'; // ajustes de versiones anteriores
+if (!GROQ_MODELS[S.groqModel]) S.groqModel = 'whisper-large-v3-turbo';
 let speakers = load('tx.speakers', []);
 let lines = load('tx.log', []).filter((l) => l && l.text);
 const lineEls = new Map();
@@ -40,7 +43,9 @@ function applySettings() {
   $('th').value = S.th; $('thVal').textContent = Number(S.th).toFixed(2);
   $('words').value = S.words;
   $('gain').value = S.gain; $('gainVal').textContent = '×' + S.gain;
-  $('cloudOn').checked = !!S.cloud; $('cloudKey').value = S.cloudKey || '';
+  $('engine').value = S.engine; $('cloudKey').value = S.cloudKey || '';
+  $('groqKey').value = S.groqKey || ''; $('groqModel').value = S.groqModel;
+  $('groqBox').hidden = S.engine !== 'groq'; $('dgBox').hidden = S.engine !== 'deepgram';
   const m = document.querySelector('meta[name=theme-color]');
   if (m) m.content = S.theme === 'light' ? '#ffffff' : '#0b0f14';
 }
@@ -51,7 +56,17 @@ $('theme').onchange = (e) => { S.theme = e.target.value; applySettings(); saveSe
 $('th').oninput = (e) => { S.th = +e.target.value; applySettings(); saveSettings(); };
 $('gain').oninput = (e) => { S.gain = +e.target.value; applySettings(); saveSettings(); };
 $('words').onchange = (e) => { S.words = e.target.value; saveSettings(); };
-$('cloudOn').onchange = (e) => { S.cloud = e.target.checked; saveSettings(); reconnectCloud(); };
+$('groqModel').innerHTML = Object.entries(GROQ_MODELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+$('engine').onchange = (e) => { S.engine = e.target.value; saveSettings(); applySettings(); cloudFail = 0; groqPause = 0; reconnectCloud(); setModePill(cloud ? 'cloud' : 'local'); };
+$('groqModel').onchange = (e) => { S.groqModel = e.target.value; saveSettings(); };
+$('groqKey').onchange = (e) => { S.groqKey = e.target.value.trim(); saveSettings(); groqPause = 0; groqFails = 0; setModePill('local'); };
+$('groqTest').onclick = async () => {
+  const key = $('groqKey').value.trim();
+  if (!key) { $('groqMsg').textContent = 'Pegá primero la clave.'; return; }
+  $('groqMsg').textContent = 'Probando…';
+  try { await testGroqKey(key); $('groqMsg').textContent = '✅ La clave funciona.'; }
+  catch (e) { $('groqMsg').textContent = '❌ ' + e.message + '. Revisá la clave y la conexión a internet.'; }
+};
 $('cloudKey').onchange = (e) => { S.cloudKey = e.target.value.trim(); saveSettings(); cloudFail = 0; reconnectCloud(); };
 $('cloudTest').onclick = async () => {
   const key = $('cloudKey').value.trim();
@@ -345,14 +360,16 @@ function onEmbedding(m) {
 let ctx = null, stream = null, node = null, seg = null, micOn = false, wake = null;
 let micWanted = true, lastSound = Date.now(), silentWarned = false, starting = false;
 
+let groqBusy = 0;
+const nBusy = () => jobs.size + groqBusy;
 function updateLive() {
   const el = $('live');
   let t = 'Micrófono en pausa', c = 'live';
   if (micOn) {
     if (seg?.speaking) { t = '🗣 Detecté voz…'; c = 'live hear'; }
-    else if (jobs.size) { t = `⏳ Transcribiendo${jobs.size > 1 ? ` (${jobs.size})` : ''}…`; c = 'live busy'; }
+    else if (nBusy()) { t = `⏳ Transcribiendo${nBusy() > 1 ? ` (${nBusy()})` : ''}…`; c = 'live busy'; }
     else { t = '🎙 Escuchando…'; }
-  } else if (jobs.size) { t = `⏳ Terminando de transcribir (${jobs.size})…`; c = 'live busy'; }
+  } else if (nBusy()) { t = `⏳ Terminando de transcribir (${nBusy()})…`; c = 'live busy'; }
   el.textContent = t; el.className = c;
 }
 
@@ -498,7 +515,46 @@ function onSegment(audio) {
   }
   const l = { id: uid(), t: Date.now(), spk: undefined, text: '', pending: true };
   lines.push(l); renderLine(l);
+  if (groqWanted()) { groqLine(audio, l); return; }
   sendJob(audio, { kind: 'line', lineId: l.id });
+}
+
+/* Groq: se transcribe cada frase en la nube; si falla o no hay internet, esa misma frase se hace en el equipo */
+function sendEmbedOnly(audio, extra) {
+  const id = ++jobSeq;
+  jobs.set(id, extra);
+  worker?.postMessage({ type: 'embedOnly', id, audio }, [audio.buffer]);
+  updateLive();
+}
+
+function groqPauseFor(ms) {
+  groqPause = Date.now() + ms;
+  setModePill('local');
+  setTimeout(() => setModePill(cloud ? 'cloud' : 'local'), ms + 100);
+}
+
+async function groqLine(audio, l) {
+  const keep = audio.slice();
+  groqBusy++; updateLive();
+  try {
+    const r = await transcribeGroq({ key: S.groqKey, audio, model: S.groqModel, words: words() });
+    groqFails = 0; groqNoted = false;
+    const text = cleanTranscript(applyCustomWords(r.text, words()));
+    if (!text) { removeLine(l.id); return; }
+    l.text = text; l.pending = false;
+    if (!speakers.length) l.spk = null;
+    else { l.waiting = true; sendEmbedOnly(keep, { kind: 'line', lineId: l.id }); }
+    renderLine(l); saveLog();
+  } catch (e) {
+    addLog(`Groq: ${e.message}${e.status ? ' (' + e.status + ')' : ''}. Esa frase la hago en el equipo.`);
+    if (e instanceof GroqError && (e.status === 401 || e.status === 403)) {
+      groqPauseFor(3600e3); setNotice('La clave de Groq no es válida. Sigo en modo local. Revisala en Ajustes.');
+    } else if (e instanceof GroqError && e.status === 429) {
+      groqPauseFor(Math.max(30, e.retryAfter || 60) * 1000);
+      if (!groqNoted) { groqNoted = true; setNotice('Se alcanzó el límite gratuito de Groq por ahora. Sigo en modo local y vuelvo solo a Groq más tarde.'); }
+    } else if (++groqFails >= 2) { groqFails = 0; groqPauseFor(20000); }
+    sendJob(keep, { kind: 'line', lineId: l.id });
+  } finally { groqBusy--; updateLive(); }
 }
 
 /* ───────────── Alta / refuerzo de interlocutor ───────────── */
@@ -587,8 +643,8 @@ function updNet() {
   $('net').textContent = on ? 'En línea' : 'Sin conexión';
   $('net').className = 'pill ' + (on ? 'ok' : 'off');
 }
-addEventListener('online', () => { updNet(); if (!asrReady) startWorker(); cloudFail = 0; connectCloud(); checkReady(); });
-addEventListener('offline', () => { updNet(); if (cloud) onCloudClosed('sin internet'); checkReady(); });
+addEventListener('online', () => { updNet(); groqFails = 0; setModePill(cloud ? 'cloud' : 'local'); if (!asrReady) startWorker(); cloudFail = 0; connectCloud(); checkReady(); });
+addEventListener('offline', () => { updNet(); setModePill('local'); if (cloud) onCloudClosed('sin internet'); checkReady(); });
 
 async function cacheHas(cacheName, test, min = 1) {
   try {
@@ -630,11 +686,18 @@ $('model').onchange = async (e) => {
 /* ───────────── Nube (Deepgram) con respaldo local ───────────── */
 let cloud = null, connecting = false, cloudSess = 0, cloudFail = 0, reconnectTimer = null;
 let dgMap = new Map(), live = null, liveTimer = null, ring = [], cloudUntil = 0;
-const cloudWanted = () => !!(S.cloud && S.cloudKey && navigator.onLine);
+const cloudWanted = () => !!(S.engine === 'deepgram' && S.cloudKey && navigator.onLine);
+let groqPause = 0, groqFails = 0, groqNoted = false;
+const groqWanted = () => !!(S.engine === 'groq' && S.groqKey && navigator.onLine && Date.now() >= groqPause);
 
 function setModePill(state) {
   const el = $('mode');
-  if (!S.cloudKey || !S.cloud) { el.textContent = '📴 Local'; el.className = 'pill'; return; }
+  if (S.engine === 'groq' && S.groqKey) {
+    if (groqWanted()) { el.textContent = '☁ Groq'; el.className = 'pill ok'; }
+    else { el.textContent = '📴 Local (sin nube)'; el.className = 'pill warn'; }
+    return;
+  }
+  if (S.engine !== 'deepgram' || !S.cloudKey) { el.textContent = '📴 Local'; el.className = 'pill'; return; }
   if (state === 'cloud') { el.textContent = '☁ En la nube'; el.className = 'pill ok'; }
   else if (state === 'connecting') { el.textContent = '☁ Conectando…'; el.className = 'pill warn'; }
   else { el.textContent = '📴 Local (sin nube)'; el.className = 'pill warn'; }

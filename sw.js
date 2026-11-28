@@ -1,7 +1,7 @@
 // Service worker: deja la app y el motor de voz guardados para usarla sin internet.
-const CACHE = 'te-escucho-v6';
+const CACHE = 'te-escucho-v7';
 const SHELL = [
-  './', 'index.html', 'style.css', 'app.js', 'core.js', 'cloud.js', 'worker.js', 'worklet.js',
+  './', 'index.html', 'style.css', 'app.js', 'core.js', 'cloud.js', 'groq.js', 'worker.js', 'worklet.js',
   'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'lib/transformers.min.js',
 ];
 

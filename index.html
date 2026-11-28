@@ -135,14 +135,36 @@
     <button id="btnForget" class="danger">Borrar todas las voces</button>
   </div>
 
-  <h3>Transcripción en la nube (opcional)</h3>
-  <label class="check"><input type="checkbox" id="cloudOn"> Usar la nube cuando haya internet</label>
-  <label>Clave de Deepgram
-    <input id="cloudKey" type="password" autocomplete="off" placeholder="pegá la clave acá">
+  <h3>Motor de transcripción</h3>
+  <label>¿Cómo querés transcribir?
+    <select id="engine">
+      <option value="local">En este dispositivo (gratis, sin internet)</option>
+      <option value="groq">Groq (gratis con tu clave, necesita internet)</option>
+      <option value="deepgram">Deepgram (el más rápido y preciso, con crédito inicial gratis)</option>
+    </select>
   </label>
-  <div class="row"><button id="cloudTest">Probar conexión</button></div>
-  <p id="cloudMsg" class="hint"></p>
-  <p class="hint">Cómo conseguirla (gratis, sin tarjeta, trae US$200 de crédito): entrá a console.deepgram.com, creá una cuenta y, en "API Keys", tocá "Create a New API Key". Pegala acá. Cuesta alrededor de 40 a 60 centavos de dólar por hora de conversación, y el audio se envía solo mientras hay voz. Sin internet la app sigue sola en modo local. La clave queda guardada solo en este dispositivo.</p>
+  <p class="hint">Si elegís Groq o Deepgram y se corta el internet, la app pasa sola al modo local y vuelve cuando regresa la conexión.</p>
+
+  <div id="groqBox" hidden>
+    <label>Clave de Groq
+      <input id="groqKey" type="password" autocomplete="off" placeholder="pegá la clave acá">
+    </label>
+    <label>Modelo
+      <select id="groqModel"></select>
+    </label>
+    <div class="row"><button id="groqTest">Probar clave</button></div>
+    <p id="groqMsg" class="hint"></p>
+    <p class="hint">Cómo conseguirla (gratis, sin tarjeta): entrá a console.groq.com, creá una cuenta y, en "API Keys", tocá "Create API Key". Pegala acá. Groq transcribe cada frase cuando termina de decirse, así que el texto aparece un instante después que con Deepgram. Tiene un límite diario gratuito; si se agota, la app sigue sola en modo local. La clave queda guardada solo en este dispositivo.</p>
+  </div>
+
+  <div id="dgBox" hidden>
+    <label>Clave de Deepgram
+      <input id="cloudKey" type="password" autocomplete="off" placeholder="pegá la clave acá">
+    </label>
+    <div class="row"><button id="cloudTest">Probar conexión</button></div>
+    <p id="cloudMsg" class="hint"></p>
+    <p class="hint">Cómo conseguirla (sin tarjeta, trae US$200 de crédito que no vence): entrá a console.deepgram.com, creá una cuenta y, en "API Keys", tocá "Create a New API Key". Pegala acá. Con el crédito inicial alcanzan cientos de horas; después cuesta alrededor de 40 a 60 centavos de dólar por hora de conversación. La clave queda guardada solo en este dispositivo.</p>
+  </div>
 
   <h3>Velocidad</h3>
   <p id="speed" class="hint"></p>

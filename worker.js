@@ -127,7 +127,10 @@ async function pump() {
 self.onmessage = (e) => {
   const m = e.data;
   if (m.type === 'load') load(m);
-  else if (m.type === 'process') {
+  else if (m.type === 'embedOnly') { // la transcripción vino de afuera: solo se saca la huella de voz
+    embQ.push({ id: m.id, audio: m.audio });
+    pump();
+  } else if (m.type === 'process') {
     asrReady.then((ok) => {
       if (!ok || !asr) { post({ type: 'result', id: m.id, text: '', ms: 0, error: 'El motor de transcripción no está listo.' }); return; }
       // transcripción en vivo: si hay demasiado atraso, se descarta lo más viejo
